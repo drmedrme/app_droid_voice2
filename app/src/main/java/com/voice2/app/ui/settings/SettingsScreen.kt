@@ -8,8 +8,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.voice2.app.BuildConfig
 import com.voice2.app.data.preferences.ThemeMode
 import com.voice2.app.data.preferences.TranscriptionMode
 
@@ -175,5 +177,16 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Version info
+        Text(
+            text = "Voice2 ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        )
     }
 }
