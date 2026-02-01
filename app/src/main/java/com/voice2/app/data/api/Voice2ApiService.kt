@@ -1,6 +1,7 @@
 package com.voice2.app.data.api
 
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import retrofit2.http.*
 import java.util.UUID
 
@@ -78,4 +79,28 @@ interface Voice2ApiService {
 
     @PATCH("todos/{id}")
     suspend fun patchTodo(@Path("id") id: UUID, @Body body: Map<String, @JvmSuppressWildcards Any>): TodoItem
+
+    @GET("ai/summarize/{chat_id}")
+    suspend fun summarizeChat(@Path("chat_id") chatId: UUID): String
+
+    @PUT("chats/{chat_id}")
+    suspend fun updateChatText(@Path("chat_id") chatId: UUID, @Query("text") text: String): Transcription
+
+    @GET("export/{chat_id}/markdown")
+    suspend fun exportMarkdown(@Path("chat_id") chatId: UUID): ResponseBody
+
+    @POST("audio/append/{chat_id}")
+    @Multipart
+    suspend fun appendAudio(@Path("chat_id") chatId: UUID, @Part file: MultipartBody.Part): Transcription
+
+    @GET("chats/search/advanced")
+    suspend fun advancedSearch(
+        @Query("query") query: String,
+        @Query("limit") limit: Int = 10,
+        @Query("fuzzy") fuzzy: Boolean = false,
+        @Query("boost_recent") boostRecent: Boolean = false,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
+        @Query("tags") tags: List<String>? = null
+    ): AdvancedSearchResponse
 }

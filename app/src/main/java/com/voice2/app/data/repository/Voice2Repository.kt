@@ -1,5 +1,6 @@
 package com.voice2.app.data.repository
 
+import com.voice2.app.data.api.AdvancedSearchResponse
 import com.voice2.app.data.api.Voice2ApiService
 import com.voice2.app.data.api.Tag
 import com.voice2.app.data.api.Transcription
@@ -81,5 +82,33 @@ class Voice2Repository @Inject constructor(
     suspend fun deleteCompletedTodos(): Result<Int> = runCatching { apiService.deleteCompletedTodos()["deleted_count"] ?: 0 }
     suspend fun updateTodoDescription(id: UUID, description: String): Result<TodoItem> = runCatching {
         apiService.patchTodo(id, mapOf("description" to description))
+    }
+
+    suspend fun summarizeChat(id: UUID): Result<String> = runCatching { apiService.summarizeChat(id) }
+
+    suspend fun updateChatText(id: UUID, text: String): Result<Transcription> = runCatching {
+        apiService.updateChatText(id, text)
+    }
+
+    suspend fun exportMarkdown(id: UUID): Result<String> = runCatching {
+        apiService.exportMarkdown(id).string()
+    }
+
+    suspend fun appendAudio(chatId: UUID, file: File): Result<Transcription> = runCatching {
+        val requestFile = file.asRequestBody("audio/mpeg".toMediaTypeOrNull())
+        val body = MultipartBody.Part.createFormData("file", file.name, requestFile)
+        apiService.appendAudio(chatId, body)
+    }
+
+    suspend fun advancedSearch(
+        query: String,
+        limit: Int = 10,
+        fuzzy: Boolean = false,
+        boostRecent: Boolean = false,
+        dateFrom: String? = null,
+        dateTo: String? = null,
+        tags: List<String>? = null
+    ): Result<AdvancedSearchResponse> = runCatching {
+        apiService.advancedSearch(query, limit, fuzzy, boostRecent, dateFrom, dateTo, tags)
     }
 }

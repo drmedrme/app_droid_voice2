@@ -30,6 +30,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:enableOnBackInvokedCallback="true"
             android:theme="@style/Theme.Voice2App">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

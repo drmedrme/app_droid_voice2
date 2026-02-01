@@ -32,6 +32,20 @@ data class TranscribeTextRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class AdvancedSearchResponse(
+    val items: List<Transcription>,
+    @Json(name = "tag_facets") val tagFacets: List<TagFacet> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class TagFacet(
+    val name: String,
+    val id: UUID? = null,
+    val color: String? = null,
+    val count: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class TodoItem(
     val id: UUID,
     val description: String,

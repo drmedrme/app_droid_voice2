@@ -14,6 +14,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.voice2.app.data.api.TagFacet
 import com.voice2.app.data.api.Transcription
 import com.voice2.app.data.audio.AudioRecorder
 import com.voice2.app.data.preferences.SettingsPreferences
@@ -47,21 +48,51 @@ class ChatViewModel @Inject constructor(
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _suggestedTags = MutableStateFlow<List<String>>(emptyList())
     val suggestedTags: StateFlow<List<String>> = _suggestedTags.asStateFlow()
 
+    private val _isSearchListening = MutableStateFlow(false)
+    val isSearchListening: StateFlow<Boolean> = _isSearchListening.asStateFlow()
+
+    // Advanced search filters
+    private val _searchFiltersExpanded = MutableStateFlow(false)
+    val searchFiltersExpanded: StateFlow<Boolean> = _searchFiltersExpanded.asStateFlow()
+
+    private val _fuzzyEnabled = MutableStateFlow(false)
+    val fuzzyEnabled: StateFlow<Boolean> = _fuzzyEnabled.asStateFlow()
+
+    private val _boostRecent = MutableStateFlow(false)
+    val boostRecent: StateFlow<Boolean> = _boostRecent.asStateFlow()
+
+    private val _dateFrom = MutableStateFlow<String?>(null)
+    val dateFrom: StateFlow<String?> = _dateFrom.asStateFlow()
+
+    private val _dateTo = MutableStateFlow<String?>(null)
+    val dateTo: StateFlow<String?> = _dateTo.asStateFlow()
+
+    private val _selectedTags = MutableStateFlow<List<String>>(emptyList())
+    val selectedTags: StateFlow<List<String>> = _selectedTags.asStateFlow()
+
+    private val _tagFacets = MutableStateFlow<List<TagFacet>>(emptyList())
+    val tagFacets: StateFlow<List<TagFacet>> = _tagFacets.asStateFlow()
+
     private var audioFile: File? = null
     private var lastPhotoUri: Uri? = null
     private val speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+    private val searchSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     private var searchJob: Job? = null
 
     init {
         loadChats()
         setupSpeechRecognizer()
+        setupSearchSpeechRecognizer()
     }
 
     private fun setupSpeechRecognizer() {
@@ -73,9 +104,9 @@ class ChatViewModel @Inject constructor(
                 }
                 _isRecording.value = false
             }
-            override fun onError(error: Int) { 
+            override fun onError(error: Int) {
                 Log.e("Voice2", "Speech recognizer error code: $error")
-                _isRecording.value = false 
+                _isRecording.value = false
             }
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
@@ -87,16 +118,62 @@ class ChatViewModel @Inject constructor(
         })
     }
 
+    private fun setupSearchSpeechRecognizer() {
+        searchSpeechRecognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    onSearchQueryChange(matches[0])
+                }
+                _isSearchListening.value = false
+            }
+            override fun onError(error: Int) {
+                Log.e("Voice2", "Search speech recognizer error code: $error")
+                _isSearchListening.value = false
+            }
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
+    }
+
+    fun startVoiceSearch() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            }
+            searchSpeechRecognizer.startListening(intent)
+            _isSearchListening.value = true
+        } catch (e: Exception) {
+            Log.e("Voice2", "Voice search start failed: ${e.message}")
+            _isSearchListening.value = false
+        }
+    }
+
+    fun stopVoiceSearch() {
+        searchSpeechRecognizer.stopListening()
+        _isSearchListening.value = false
+    }
+
     fun setLastPhotoUri(uri: Uri?) {
         lastPhotoUri = uri
     }
 
     fun loadChats() {
         viewModelScope.launch {
-            _uiState.value = ChatUiState.Loading
+            // Only show full-screen spinner on first load; pull-to-refresh keeps the list visible
+            if (_uiState.value !is ChatUiState.Success) {
+                _uiState.value = ChatUiState.Loading
+            }
+            _isRefreshing.value = true
             repository.getChats()
                 .onSuccess { chats -> _uiState.value = ChatUiState.Success(chats) }
                 .onFailure { e -> _uiState.value = ChatUiState.Error(e.message ?: "Unknown error") }
+            _isRefreshing.value = false
         }
     }
 
@@ -105,15 +182,101 @@ class ChatViewModel @Inject constructor(
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             delay(500)
-            if (query.isBlank()) loadChats() else performSearch(query)
+            if (query.isBlank() && !hasActiveFilters()) loadChats() else performSearch(query)
         }
     }
 
+    private fun hasActiveFilters(): Boolean {
+        return _fuzzyEnabled.value || _boostRecent.value ||
+                _dateFrom.value != null || _dateTo.value != null ||
+                _selectedTags.value.isNotEmpty()
+    }
+
     private suspend fun performSearch(query: String) {
-        _uiState.value = ChatUiState.Loading
-        repository.searchChats(query)
-            .onSuccess { chats -> _uiState.value = ChatUiState.Success(chats) }
-            .onFailure { e -> _uiState.value = ChatUiState.Error(e.message ?: "Search failed") }
+        if (hasActiveFilters() || query.isNotBlank()) {
+            val searchText = query.ifBlank { "*" }
+            _uiState.value = ChatUiState.Loading
+            repository.advancedSearch(
+                query = searchText,
+                fuzzy = _fuzzyEnabled.value,
+                boostRecent = _boostRecent.value,
+                dateFrom = _dateFrom.value,
+                dateTo = _dateTo.value,
+                tags = _selectedTags.value.ifEmpty { null }
+            ).onSuccess { response ->
+                _uiState.value = ChatUiState.Success(response.items)
+                _tagFacets.value = response.tagFacets
+            }.onFailure { e ->
+                // Fallback to basic search if advanced fails
+                if (query.isNotBlank()) {
+                    repository.searchChats(query)
+                        .onSuccess { chats -> _uiState.value = ChatUiState.Success(chats) }
+                        .onFailure { e2 -> _uiState.value = ChatUiState.Error(e2.message ?: "Search failed") }
+                } else {
+                    _uiState.value = ChatUiState.Error(e.message ?: "Search failed")
+                }
+            }
+        } else {
+            _uiState.value = ChatUiState.Loading
+            repository.searchChats(query)
+                .onSuccess { chats -> _uiState.value = ChatUiState.Success(chats) }
+                .onFailure { e -> _uiState.value = ChatUiState.Error(e.message ?: "Search failed") }
+        }
+    }
+
+    // Filter setters
+
+    fun toggleSearchFilters() {
+        _searchFiltersExpanded.value = !_searchFiltersExpanded.value
+    }
+
+    fun setFuzzyEnabled(enabled: Boolean) {
+        _fuzzyEnabled.value = enabled
+        triggerSearch()
+    }
+
+    fun setBoostRecent(enabled: Boolean) {
+        _boostRecent.value = enabled
+        triggerSearch()
+    }
+
+    fun setDateFrom(date: String?) {
+        _dateFrom.value = date
+        triggerSearch()
+    }
+
+    fun setDateTo(date: String?) {
+        _dateTo.value = date
+        triggerSearch()
+    }
+
+    fun toggleTagFilter(tagName: String) {
+        val current = _selectedTags.value.toMutableList()
+        if (current.contains(tagName)) {
+            current.remove(tagName)
+        } else {
+            current.add(tagName)
+        }
+        _selectedTags.value = current
+        triggerSearch()
+    }
+
+    fun clearFilters() {
+        _fuzzyEnabled.value = false
+        _boostRecent.value = false
+        _dateFrom.value = null
+        _dateTo.value = null
+        _selectedTags.value = emptyList()
+        _tagFacets.value = emptyList()
+        if (_searchQuery.value.isBlank()) loadChats() else triggerSearch()
+    }
+
+    private fun triggerSearch() {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
+            performSearch(_searchQuery.value)
+        }
     }
 
     fun toggleRecording() {
@@ -140,7 +303,7 @@ class ChatViewModel @Inject constructor(
             audioRecorder.start(file)
             _isRecording.value = true
         } catch (e: Exception) {
-            _uiState.value = ChatUiState.Error("Recording failed: \$e.message}")
+            _uiState.value = ChatUiState.Error("Recording failed: ${e.message}")
         }
     }
 
@@ -150,7 +313,7 @@ class ChatViewModel @Inject constructor(
             _isRecording.value = false
             audioFile?.let { uploadAudio(it) }
         } catch (e: Exception) {
-            _uiState.value = ChatUiState.Error("Stop failed: \$e.message}")
+            _uiState.value = ChatUiState.Error("Stop failed: ${e.message}")
         }
     }
 
@@ -162,7 +325,7 @@ class ChatViewModel @Inject constructor(
             speechRecognizer.startListening(intent)
             _isRecording.value = true
         } catch (e: Exception) {
-            _uiState.value = ChatUiState.Error("Speech start failed: \$e.message}")
+            _uiState.value = ChatUiState.Error("Speech start failed: ${e.message}")
         }
     }
 
@@ -184,14 +347,19 @@ class ChatViewModel @Inject constructor(
             _uiState.value = ChatUiState.Loading
             val location = getCurrentLocation()
             repository.uploadAudio(file, location?.first, location?.second)
-                .onSuccess { transcription -> 
+                .onSuccess { transcription ->
                     lastPhotoUri?.let { uri ->
-                        repository.addTag(transcription.id, "LOCAL_PHOTO:\$uri}")
+                        val internalFile = copyPhotoToInternal(uri)
+                        if (internalFile != null) {
+                            repository.addTag(transcription.id, "LOCAL_PHOTO:${Uri.fromFile(internalFile)}")
+                        } else {
+                            Log.w("Voice2", "Photo copy failed; skipping LOCAL_PHOTO tag for ephemeral URI")
+                        }
                     }
                     lastPhotoUri = null
-                    loadChats() 
+                    loadChats()
                 }
-                .onFailure { e -> _uiState.value = ChatUiState.Error("Upload failed: \$e.message}") }
+                .onFailure { e -> _uiState.value = ChatUiState.Error("Upload failed: ${e.message}") }
         }
     }
 
@@ -200,14 +368,19 @@ class ChatViewModel @Inject constructor(
             _uiState.value = ChatUiState.Loading
             val location = getCurrentLocation()
             repository.transcribeText(text, location?.first, location?.second)
-                .onSuccess { transcription -> 
+                .onSuccess { transcription ->
                     lastPhotoUri?.let { uri ->
-                        repository.addTag(transcription.id, "LOCAL_PHOTO:\$uri}")
+                        val internalFile = copyPhotoToInternal(uri)
+                        if (internalFile != null) {
+                            repository.addTag(transcription.id, "LOCAL_PHOTO:${Uri.fromFile(internalFile)}")
+                        } else {
+                            Log.w("Voice2", "Photo copy failed; skipping LOCAL_PHOTO tag for ephemeral URI")
+                        }
                     }
                     lastPhotoUri = null
-                    loadChats() 
+                    loadChats()
                 }
-                .onFailure { e -> _uiState.value = ChatUiState.Error("Text upload failed: \$e.message}") }
+                .onFailure { e -> _uiState.value = ChatUiState.Error("Text upload failed: ${e.message}") }
         }
     }
 
@@ -223,9 +396,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private fun copyPhotoToInternal(uri: Uri): File? {
+        return try {
+            val photosDir = File(context.filesDir, "photos").also { it.mkdirs() }
+            val destFile = File(photosDir, "photo_${System.currentTimeMillis()}.jpg")
+            val stream = context.contentResolver.openInputStream(uri)
+            if (stream == null) {
+                Log.w("Voice2", "ContentResolver returned null stream for $uri")
+                return null
+            }
+            stream.use { input ->
+                destFile.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (destFile.length() > 0) destFile else {
+                destFile.delete()
+                Log.w("Voice2", "Copied photo was 0 bytes, deleted empty file")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("Voice2", "Failed to copy photo to internal storage", e)
+            null
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         speechRecognizer.destroy()
+        searchSpeechRecognizer.destroy()
     }
 }
 
