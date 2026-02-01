@@ -20,7 +20,15 @@ data class Transcription(
     @Json(name = "audio_filename") val audioFilename: String?,
     val tags: List<Tag> = emptyList(),
     @Json(name = "merged_title") val mergedTitle: String?,
-    @Json(name = "todo_title") val todoTitle: String?
+    @Json(name = "todo_title") val todoTitle: String?,
+    @Json(name = "original_text") val originalText: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TranscribeTextRequest(
+    val text: String,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -30,5 +38,6 @@ data class TodoItem(
     val completed: Boolean,
     @Json(name = "created_at") val createdAt: String,
     @Json(name = "completed_at") val completedAt: String?,
-    @Json(name = "chat_id") val chatId: UUID?
+    @Json(name = "chat_id") val chatId: UUID?,
+    @Json(name = "chat_title") val chatTitle: String? = null
 )
