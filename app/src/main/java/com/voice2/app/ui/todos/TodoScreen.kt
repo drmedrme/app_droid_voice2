@@ -75,11 +75,34 @@ fun TodoScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Text(
-                text = "Todos",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(16.dp)
-            )
+            val hasCompleted = (uiState as? TodoUiState.Success)
+                ?.groups?.any { g -> g.todos.any { it.completed } } == true
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 16.dp, bottom = 0.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Todos",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                AnimatedVisibility(
+                    visible = hasCompleted,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    TextButton(onClick = { viewModel.deleteCompletedTodos() }) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("Clear completed")
+                    }
+                }
+            }
 
             // Add todo input — native expand/collapse
             AnimatedVisibility(

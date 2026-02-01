@@ -153,6 +153,13 @@ class TodoViewModel @Inject constructor(
         }
     }
 
+    fun deleteCompletedTodos() {
+        viewModelScope.launch {
+            repository.deleteCompletedTodos()
+                .onSuccess { loadTodos() }
+        }
+    }
+
     fun startEditing(id: UUID) {
         _editingTodoId.value = id
     }
