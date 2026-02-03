@@ -13,8 +13,8 @@ android {
         applicationId = "com.voice2.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "v2026.02.01"
+        versionCode = 20260203
+        versionName = "v2026.02.03"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
