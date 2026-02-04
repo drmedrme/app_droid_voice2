@@ -1,6 +1,8 @@
 package com.voice2.app.ui.chat
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
@@ -10,6 +12,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -30,12 +34,16 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShortText
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,7 +69,8 @@ fun ChatDetailScreen(
     viewModel: ChatDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val suggestedTags by viewModel.suggestedTags.collectAsState()
+    val suggestedExistingTags by viewModel.suggestedExistingTags.collectAsState()
+    val proposedTags by viewModel.proposedTags.collectAsState()
     val relatedChats by viewModel.relatedChats.collectAsState()
     val actionMessage by viewModel.actionMessage.collectAsState()
     val summary by viewModel.summary.collectAsState()
@@ -69,8 +78,21 @@ fun ChatDetailScreen(
     val isEditingText by viewModel.isEditingText.collectAsState()
     val shareText by viewModel.shareText.collectAsState()
     val isAppendRecording by viewModel.isAppendRecording.collectAsState()
+    val allTags by viewModel.allTags.collectAsState()
+    val isTagPickerExpanded by viewModel.isTagPickerExpanded.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var hasAudioPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasAudioPermission = granted
+        if (granted) viewModel.startAppendRecording()
+    }
 
     // Handle share intent
     LaunchedEffect(shareText) {
@@ -290,7 +312,13 @@ fun ChatDetailScreen(
                                 }
                             } else {
                                 OutlinedButton(
-                                    onClick = { viewModel.startAppendRecording() },
+                                    onClick = {
+                                        if (hasAudioPermission) {
+                                            viewModel.startAppendRecording()
+                                        } else {
+                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Icon(Icons.Default.Mic, contentDescription = null)
@@ -507,6 +535,72 @@ fun ChatDetailScreen(
                             }
                         }
 
+                        // Quick Tags picker
+                        if (allTags.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.toggleTagPickerExpanded() }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Label,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = "Quick Tags",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                }
+                                Icon(
+                                    if (isTagPickerExpanded) Icons.Default.KeyboardArrowUp
+                                    else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (isTagPickerExpanded) "Collapse" else "Expand",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            AnimatedVisibility(
+                                visible = isTagPickerExpanded,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val currentTagIds = state.chat.tags.map { it.id }.toSet()
+                                    allTags.filter { !it.name.startsWith("LOCAL_PHOTO:") }.forEach { tag ->
+                                        val isSelected = tag.id in currentTagIds
+                                        val chipColor = tag.color?.let { parseTagColor(it) }
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { viewModel.toggleTag(tag) },
+                                            label = { Text(tag.name) },
+                                            leadingIcon = if (isSelected) {
+                                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                            } else null,
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            colors = chipColor?.let {
+                                                FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = it.copy(alpha = 0.2f),
+                                                    selectedLabelColor = it,
+                                                    selectedLeadingIconColor = it
+                                                )
+                                            } ?: FilterChipDefaults.filterChipColors()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Manual tag entry
                         var newTagText by remember { mutableStateOf("") }
                         Row(
@@ -535,28 +629,74 @@ fun ChatDetailScreen(
                             }
                         }
 
-                        if (suggestedTags.isNotEmpty()) {
-                            Text(
-                                text = "AI Suggested Tags",
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                suggestedTags.forEach { tag ->
-                                    AssistChip(
-                                        onClick = { viewModel.addTag(tag) },
-                                        label = { Text(tag) },
-                                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                        modifier = Modifier.padding(vertical = 2.dp)
-                                    )
+                        // AI Tag Suggestions
+                        if (suggestedExistingTags.isNotEmpty() || proposedTags.isNotEmpty()) {
+                            // Matching existing tags
+                            if (suggestedExistingTags.isNotEmpty()) {
+                                Text(
+                                    text = "Matching Existing Tags",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                                Text(
+                                    text = "Tap to apply:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    suggestedExistingTags.forEach { tag ->
+                                        val chipColor = tag.color?.let { parseTagColor(it) }
+                                        AssistChip(
+                                            onClick = { viewModel.applyExistingTag(tag) },
+                                            label = { Text(tag.name) },
+                                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            colors = chipColor?.let {
+                                                AssistChipDefaults.assistChipColors(
+                                                    containerColor = it.copy(alpha = 0.15f),
+                                                    labelColor = it,
+                                                    leadingIconContentColor = it
+                                                )
+                                            } ?: AssistChipDefaults.assistChipColors()
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Proposed new tags
+                            if (proposedTags.isNotEmpty()) {
+                                Text(
+                                    text = "Proposed New Tags",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                                Text(
+                                    text = "Accept to add to your tag system:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    proposedTags.forEach { tagName ->
+                                        OutlinedButton(
+                                            onClick = { viewModel.acceptProposedTag(tagName) },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(tagName, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
                                 }
                             }
                         } else {
                             TextButton(onClick = { viewModel.suggestTags() }) {
-                                Text("Suggest AI Tags")
+                                Text("Explore Tags")
                             }
                         }
 

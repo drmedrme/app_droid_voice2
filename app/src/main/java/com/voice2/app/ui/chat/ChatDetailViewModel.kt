@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.voice2.app.data.api.Tag
 import com.voice2.app.data.api.Transcription
 import com.voice2.app.data.audio.AudioRecorder
 import com.voice2.app.data.preferences.SettingsPreferences
@@ -39,8 +40,11 @@ class ChatDetailViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<DetailUiState>(DetailUiState.Loading)
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
-    private val _suggestedTags = MutableStateFlow<List<String>>(emptyList())
-    val suggestedTags: StateFlow<List<String>> = _suggestedTags.asStateFlow()
+    private val _suggestedExistingTags = MutableStateFlow<List<Tag>>(emptyList())
+    val suggestedExistingTags: StateFlow<List<Tag>> = _suggestedExistingTags.asStateFlow()
+
+    private val _proposedTags = MutableStateFlow<List<String>>(emptyList())
+    val proposedTags: StateFlow<List<String>> = _proposedTags.asStateFlow()
 
     private val _relatedChats = MutableStateFlow<List<Transcription>>(emptyList())
     val relatedChats: StateFlow<List<Transcription>> = _relatedChats.asStateFlow()
@@ -63,12 +67,54 @@ class ChatDetailViewModel @Inject constructor(
     private val _isAppendRecording = MutableStateFlow(false)
     val isAppendRecording: StateFlow<Boolean> = _isAppendRecording.asStateFlow()
 
+    private val _allTags = MutableStateFlow<List<Tag>>(emptyList())
+    val allTags: StateFlow<List<Tag>> = _allTags.asStateFlow()
+
+    private val _isTagPickerExpanded = MutableStateFlow(false)
+    val isTagPickerExpanded: StateFlow<Boolean> = _isTagPickerExpanded.asStateFlow()
+
     private var appendAudioFile: File? = null
-    private var appendSpeechRecognizer: SpeechRecognizer? = null
+    private val appendSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
 
     init {
+        setupAppendSpeechRecognizer()
         loadChat()
         loadRelatedChats()
+        loadAllTags()
+    }
+
+    private fun setupAppendSpeechRecognizer() {
+        appendSpeechRecognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    appendTextToChat(matches[0])
+                }
+                _isAppendRecording.value = false
+            }
+            override fun onError(error: Int) {
+                Log.e("Voice2", "Append speech error code: $error")
+                _isAppendRecording.value = false
+                val msg = when (error) {
+                    SpeechRecognizer.ERROR_NO_MATCH -> "No speech detected"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input (timeout)"
+                    SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                    SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                    SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Missing audio permission"
+                    else -> "Speech error ($error)"
+                }
+                _actionMessage.value = msg
+            }
+            override fun onReadyForSpeech(params: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        })
     }
 
     fun loadChat() {
@@ -110,16 +156,47 @@ class ChatDetailViewModel @Inject constructor(
     fun suggestTags() {
         viewModelScope.launch {
             repository.suggestTags(UUID.fromString(chatId))
-                .onSuccess { tags -> _suggestedTags.value = tags }
+                .onSuccess { response ->
+                    _suggestedExistingTags.value = response.existingTags
+                    _proposedTags.value = response.proposedTags
+                }
         }
     }
 
+    /** Apply an existing tag to this chat. */
+    fun applyExistingTag(tag: Tag) {
+        viewModelScope.launch {
+            val currentState = _uiState.value
+            if (currentState is DetailUiState.Success) {
+                val currentTagIds = currentState.chat.tags.map { it.id }
+                if (tag.id in currentTagIds) return@launch
+                repository.updateChatTags(UUID.fromString(chatId), currentTagIds + tag.id)
+                    .onSuccess { chat ->
+                        _uiState.value = DetailUiState.Success(chat)
+                        _suggestedExistingTags.value = _suggestedExistingTags.value.filter { it.id != tag.id }
+                    }
+            }
+        }
+    }
+
+    /** Accept a proposed tag: create it in the DB, then apply it to this chat. */
+    fun acceptProposedTag(name: String) {
+        viewModelScope.launch {
+            repository.addTag(UUID.fromString(chatId), name)
+                .onSuccess { chat ->
+                    _uiState.value = DetailUiState.Success(chat)
+                    _proposedTags.value = _proposedTags.value.filter { it != name }
+                }
+        }
+    }
+
+    /** Add a manually typed tag (creates if needed, then applies). */
     fun addTag(name: String) {
         viewModelScope.launch {
             repository.addTag(UUID.fromString(chatId), name)
                 .onSuccess { chat ->
                     _uiState.value = DetailUiState.Success(chat)
-                    _suggestedTags.value = _suggestedTags.value.filter { it != name }
+                    _proposedTags.value = _proposedTags.value.filter { it != name }
                 }
         }
     }
@@ -137,6 +214,38 @@ class ChatDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.getRelatedChats(UUID.fromString(chatId))
                 .onSuccess { _relatedChats.value = it }
+        }
+    }
+
+    private fun loadAllTags() {
+        viewModelScope.launch {
+            repository.getTags()
+                .onSuccess { _allTags.value = it }
+        }
+    }
+
+    fun toggleTagPickerExpanded() {
+        _isTagPickerExpanded.value = !_isTagPickerExpanded.value
+    }
+
+    fun toggleTag(tag: Tag) {
+        viewModelScope.launch {
+            val currentState = _uiState.value
+            if (currentState is DetailUiState.Success) {
+                val currentTagIds = currentState.chat.tags.map { it.id }
+                val newTagIds = if (tag.id in currentTagIds) {
+                    currentTagIds.filter { it != tag.id }
+                } else {
+                    currentTagIds + tag.id
+                }
+                repository.updateChatTags(UUID.fromString(chatId), newTagIds)
+                    .onSuccess { chat ->
+                        _uiState.value = DetailUiState.Success(chat)
+                    }
+                    .onFailure { e ->
+                        _actionMessage.value = "Failed to update tags: ${e.message}"
+                    }
+            }
         }
     }
 
@@ -231,33 +340,13 @@ class ChatDetailViewModel @Inject constructor(
                 }
             } else {
                 try {
-                    val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                    appendSpeechRecognizer = recognizer
-                    recognizer.setRecognitionListener(object : RecognitionListener {
-                        override fun onResults(results: Bundle?) {
-                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            if (!matches.isNullOrEmpty()) {
-                                appendTextToChat(matches[0])
-                            }
-                            _isAppendRecording.value = false
-                        }
-                        override fun onError(error: Int) {
-                            Log.e("Voice2", "Append speech error: $error")
-                            _isAppendRecording.value = false
-                            _actionMessage.value = "Speech recognition failed"
-                        }
-                        override fun onReadyForSpeech(params: Bundle?) {}
-                        override fun onBeginningOfSpeech() {}
-                        override fun onRmsChanged(rmsdB: Float) {}
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-                        override fun onEndOfSpeech() {}
-                        override fun onPartialResults(partialResults: Bundle?) {}
-                        override fun onEvent(eventType: Int, params: Bundle?) {}
-                    })
+                    val pauseMs = settingsPreferences.speechPauseDuration.first()
                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+                        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
                     }
-                    recognizer.startListening(intent)
+                    appendSpeechRecognizer.startListening(intent)
                     _isAppendRecording.value = true
                 } catch (e: Exception) {
                     _actionMessage.value = "Speech start failed: ${e.message}"
@@ -287,7 +376,7 @@ class ChatDetailViewModel @Inject constructor(
                     _actionMessage.value = "Stop failed: ${e.message}"
                 }
             } else {
-                appendSpeechRecognizer?.stopListening()
+                appendSpeechRecognizer.stopListening()
                 _isAppendRecording.value = false
             }
         }
@@ -311,7 +400,7 @@ class ChatDetailViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        appendSpeechRecognizer?.destroy()
+        appendSpeechRecognizer.destroy()
     }
 }
 
