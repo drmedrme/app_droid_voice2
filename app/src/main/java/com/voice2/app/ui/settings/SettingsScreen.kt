@@ -1,6 +1,8 @@
 package com.voice2.app.ui.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
@@ -13,7 +15,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.voice2.app.BuildConfig
 import com.voice2.app.data.preferences.ThemeMode
+import com.voice2.app.data.preferences.SettingsPreferences
 import com.voice2.app.data.preferences.TranscriptionMode
+import kotlin.math.roundToLong
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,9 +28,10 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val baseUrl by viewModel.baseUrl.collectAsState()
     val testState by viewModel.testState.collectAsState()
+    val speechPauseDuration by viewModel.speechPauseDuration.collectAsState()
     var baseUrlInput by remember(baseUrl) { mutableStateOf(baseUrl) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Text(text = "Settings", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -55,6 +60,54 @@ fun SettingsScreen(
                         selected = transcriptionMode == TranscriptionMode.HIGH_QUALITY,
                         onClick = { viewModel.setTranscriptionMode(TranscriptionMode.HIGH_QUALITY) }
                     )
+                }
+            }
+        }
+
+        // Speech Pause Duration (only relevant for FAST mode)
+        if (transcriptionMode == TranscriptionMode.FAST) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "Speech Pause Duration", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "How long to wait after you stop speaking before the recognizer finalizes. Increase this if it cuts you off during pauses.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    var sliderValue by remember(speechPauseDuration) {
+                        mutableStateOf(speechPauseDuration.toFloat())
+                    }
+                    val seconds = sliderValue / 1000f
+
+                    Text(
+                        text = "%.1f seconds".format(seconds),
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = { sliderValue = it },
+                        onValueChangeFinished = {
+                            viewModel.setSpeechPauseDuration(sliderValue.roundToLong())
+                        },
+                        valueRange = SettingsPreferences.MIN_SPEECH_PAUSE_MS.toFloat()..SettingsPreferences.MAX_SPEECH_PAUSE_MS.toFloat(),
+                        steps = 16,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("1.5s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("10s", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -178,7 +231,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(32.dp))
 
         // Version info
         Text(
