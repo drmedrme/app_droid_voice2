@@ -142,15 +142,20 @@ class ChatViewModel @Inject constructor(
     }
 
     fun startVoiceSearch() {
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        viewModelScope.launch {
+            try {
+                val pauseMs = settingsPreferences.speechPauseDuration.first()
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+                }
+                searchSpeechRecognizer.startListening(intent)
+                _isSearchListening.value = true
+            } catch (e: Exception) {
+                Log.e("Voice2", "Voice search start failed: ${e.message}")
+                _isSearchListening.value = false
             }
-            searchSpeechRecognizer.startListening(intent)
-            _isSearchListening.value = true
-        } catch (e: Exception) {
-            Log.e("Voice2", "Voice search start failed: ${e.message}")
-            _isSearchListening.value = false
         }
     }
 
@@ -171,7 +176,9 @@ class ChatViewModel @Inject constructor(
             }
             _isRefreshing.value = true
             repository.getChats()
-                .onSuccess { chats -> _uiState.value = ChatUiState.Success(chats) }
+                .onSuccess { chats ->
+                    _uiState.value = ChatUiState.Success(chats.filter { !it.isMerged })
+                }
                 .onFailure { e -> _uiState.value = ChatUiState.Error(e.message ?: "Unknown error") }
             _isRefreshing.value = false
         }
@@ -318,14 +325,19 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun startSpeechRecognition() {
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        viewModelScope.launch {
+            try {
+                val pauseMs = settingsPreferences.speechPauseDuration.first()
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, pauseMs)
+                }
+                speechRecognizer.startListening(intent)
+                _isRecording.value = true
+            } catch (e: Exception) {
+                _uiState.value = ChatUiState.Error("Speech start failed: ${e.message}")
             }
-            speechRecognizer.startListening(intent)
-            _isRecording.value = true
-        } catch (e: Exception) {
-            _uiState.value = ChatUiState.Error("Speech start failed: ${e.message}")
         }
     }
 
@@ -386,7 +398,10 @@ class ChatViewModel @Inject constructor(
 
     fun suggestTags(chatId: UUID) {
         viewModelScope.launch {
-            repository.suggestTags(chatId).onSuccess { _suggestedTags.value = it }
+            repository.suggestTags(chatId).onSuccess { response ->
+                val names = response.existingTags.map { it.name } + response.proposedTags
+                _suggestedTags.value = names.distinct()
+            }
         }
     }
 

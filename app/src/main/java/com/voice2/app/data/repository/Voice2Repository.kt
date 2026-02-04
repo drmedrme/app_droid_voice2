@@ -1,8 +1,10 @@
 package com.voice2.app.data.repository
 
 import com.voice2.app.data.api.AdvancedSearchResponse
+import com.voice2.app.data.api.CombineChatsResponse
 import com.voice2.app.data.api.Voice2ApiService
 import com.voice2.app.data.api.Tag
+import com.voice2.app.data.api.TagSuggestionResponse
 import com.voice2.app.data.api.Transcription
 import com.voice2.app.data.api.TodoItem
 import com.voice2.app.data.api.TranscribeTextRequest
@@ -40,7 +42,7 @@ class Voice2Repository @Inject constructor(
         apiService.rewriteChat(id, mapOf("mode" to mode))
     }
 
-    suspend fun suggestTags(id: UUID): Result<List<String>> = runCatching {
+    suspend fun suggestTags(id: UUID): Result<TagSuggestionResponse> = runCatching {
         apiService.suggestTags(id)
     }
 
@@ -65,6 +67,14 @@ class Voice2Repository @Inject constructor(
     suspend fun revertChat(id: UUID): Result<Transcription> = runCatching { apiService.revertChat(id) }
 
     suspend fun getRelatedChats(id: UUID): Result<List<Transcription>> = runCatching { apiService.getRelatedChats(id) }
+
+    suspend fun combineChats(sourceIds: List<UUID>): Result<CombineChatsResponse> = runCatching {
+        apiService.combineChats(mapOf("source_chat_ids" to sourceIds))
+    }
+
+    suspend fun getSourceChats(id: UUID): Result<List<Transcription>> = runCatching { apiService.getSourceChats(id) }
+
+    suspend fun getCombinedInto(id: UUID): Result<Transcription?> = runCatching { apiService.getCombinedInto(id) }
 
     suspend fun deleteChat(id: UUID): Result<Unit> = runCatching { apiService.deleteChat(id) }
 

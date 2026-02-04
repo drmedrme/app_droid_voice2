@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.voice2.app.data.api.CombineChatsResponse
 import com.voice2.app.data.api.Tag
 import com.voice2.app.data.api.Transcription
 import com.voice2.app.data.audio.AudioRecorder
@@ -73,6 +74,18 @@ class ChatDetailViewModel @Inject constructor(
     private val _isTagPickerExpanded = MutableStateFlow(false)
     val isTagPickerExpanded: StateFlow<Boolean> = _isTagPickerExpanded.asStateFlow()
 
+    private val _sourceChats = MutableStateFlow<List<Transcription>>(emptyList())
+    val sourceChats: StateFlow<List<Transcription>> = _sourceChats.asStateFlow()
+
+    private val _combinedInto = MutableStateFlow<Transcription?>(null)
+    val combinedInto: StateFlow<Transcription?> = _combinedInto.asStateFlow()
+
+    private val _selectedRelatedIds = MutableStateFlow<Set<UUID>>(emptySet())
+    val selectedRelatedIds: StateFlow<Set<UUID>> = _selectedRelatedIds.asStateFlow()
+
+    private val _isCombining = MutableStateFlow(false)
+    val isCombining: StateFlow<Boolean> = _isCombining.asStateFlow()
+
     private var appendAudioFile: File? = null
     private val appendSpeechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
 
@@ -81,6 +94,8 @@ class ChatDetailViewModel @Inject constructor(
         loadChat()
         loadRelatedChats()
         loadAllTags()
+        loadSourceChats()
+        loadCombinedInto()
     }
 
     private fun setupAppendSpeechRecognizer() {
@@ -213,7 +228,46 @@ class ChatDetailViewModel @Inject constructor(
     fun loadRelatedChats() {
         viewModelScope.launch {
             repository.getRelatedChats(UUID.fromString(chatId))
-                .onSuccess { _relatedChats.value = it }
+                .onSuccess { chats ->
+                    _relatedChats.value = chats.filter { !it.isMerged }
+                }
+        }
+    }
+
+    private fun loadSourceChats() {
+        viewModelScope.launch {
+            repository.getSourceChats(UUID.fromString(chatId))
+                .onSuccess { _sourceChats.value = it }
+        }
+    }
+
+    private fun loadCombinedInto() {
+        viewModelScope.launch {
+            repository.getCombinedInto(UUID.fromString(chatId))
+                .onSuccess { _combinedInto.value = it }
+        }
+    }
+
+    fun toggleRelatedSelection(id: UUID) {
+        val current = _selectedRelatedIds.value.toMutableSet()
+        if (current.contains(id)) current.remove(id) else current.add(id)
+        _selectedRelatedIds.value = current
+    }
+
+    fun combineChats(onNavigate: (UUID) -> Unit) {
+        viewModelScope.launch {
+            _isCombining.value = true
+            val allIds = listOf(UUID.fromString(chatId)) + _selectedRelatedIds.value.toList()
+            repository.combineChats(allIds)
+                .onSuccess { response ->
+                    _actionMessage.value = "Combined ${allIds.size} chats. ${response.todosMoved} todo(s) moved."
+                    _selectedRelatedIds.value = emptySet()
+                    onNavigate(response.combinedChat.id)
+                }
+                .onFailure { e ->
+                    _actionMessage.value = "Combine failed: ${e.message}"
+                }
+            _isCombining.value = false
         }
     }
 

@@ -66,6 +66,7 @@ private fun formatDetailTimestamp(timestamp: String): String {
 @Composable
 fun ChatDetailScreen(
     onBack: () -> Unit,
+    onNavigateToChat: (String) -> Unit = {},
     viewModel: ChatDetailViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -80,8 +81,13 @@ fun ChatDetailScreen(
     val isAppendRecording by viewModel.isAppendRecording.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
     val isTagPickerExpanded by viewModel.isTagPickerExpanded.collectAsState()
+    val sourceChats by viewModel.sourceChats.collectAsState()
+    val combinedInto by viewModel.combinedInto.collectAsState()
+    val selectedRelatedIds by viewModel.selectedRelatedIds.collectAsState()
+    val isCombining by viewModel.isCombining.collectAsState()
     val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showCombineConfirm by remember { mutableStateOf(false) }
     var hasAudioPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -131,6 +137,36 @@ fun ChatDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCombineConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCombineConfirm = false },
+            title = { Text("Combine Chats") },
+            text = {
+                Text(
+                    "This will combine ${selectedRelatedIds.size + 1} chats:\n\n" +
+                    "\u2022 AI-synthesize text from all selected notes\n" +
+                    "\u2022 Move all todos to the combined chat\n" +
+                    "\u2022 Merge tags from all sources\n" +
+                    "\u2022 Archive original chats"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCombineConfirm = false
+                        viewModel.combineChats { newId ->
+                            onNavigateToChat(newId.toString())
+                        }
+                    },
+                    enabled = !isCombining
+                ) { Text(if (isCombining) "Combining..." else "Combine") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCombineConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -218,6 +254,49 @@ fun ChatDetailScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+
+                        // Merged-into banner
+                        if (state.chat.isMerged && combinedInto != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFFFEF3C7)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            combinedInto?.let { onNavigateToChat(it.id.toString()) }
+                                        }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            "This chat was combined into a new note",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = Color(0xFF92400E)
+                                        )
+                                        combinedInto?.mergedTitle?.let { title ->
+                                            Text(
+                                                title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFFB45309)
+                                            )
+                                        }
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            combinedInto?.let { onNavigateToChat(it.id.toString()) }
+                                        }
+                                    ) {
+                                        Text("View Combined", color = Color(0xFF92400E))
+                                    }
+                                }
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -706,26 +785,107 @@ fun ChatDetailScreen(
                             Text(text = "Related Chats", style = MaterialTheme.typography.titleMedium)
                             Spacer(modifier = Modifier.height(8.dp))
                             relatedChats.forEach { related ->
+                                val isSelected = selectedRelatedIds.contains(related.id)
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 4.dp)
-                                        .clickable { /* navigation handled externally */ },
+                                        .clickable { onNavigateToChat(related.id.toString()) },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected)
+                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                        else MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = isSelected,
+                                            onCheckedChange = { viewModel.toggleRelatedSelection(related.id) }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = related.mergedTitle ?: "Transcription",
+                                                style = MaterialTheme.typography.titleSmall
+                                            )
+                                            Text(
+                                                text = related.text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Combine button
+                            if (selectedRelatedIds.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { showCombineConfirm = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    enabled = !isCombining
+                                ) {
+                                    if (isCombining) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Combining...")
+                                    } else {
+                                        Text("Combine ${selectedRelatedIds.size + 1} Chats")
+                                    }
+                                }
+                            }
+                        }
+
+                        // Source Notes section (for combined chats)
+                        if (sourceChats.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Source Notes (${sourceChats.size})",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            sourceChats.forEach { source ->
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { onNavigateToChat(source.id.toString()) },
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                                     )
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = source.mergedTitle ?: formatDetailTimestamp(source.timestamp),
+                                                style = MaterialTheme.typography.titleSmall
+                                            )
+                                        }
                                         Text(
-                                            text = related.mergedTitle ?: "Transcription",
-                                            style = MaterialTheme.typography.titleSmall
-                                        )
-                                        Text(
-                                            text = related.text,
+                                            text = source.text,
                                             style = MaterialTheme.typography.bodySmall,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = formatDetailTimestamp(source.timestamp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
                                     }
                                 }

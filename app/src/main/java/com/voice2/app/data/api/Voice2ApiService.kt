@@ -33,7 +33,7 @@ interface Voice2ApiService {
     suspend fun rewriteChat(@Path("chat_id") chatId: UUID, @Body body: Map<String, String>): Transcription
 
     @GET("ai/suggest-tags/{chat_id}")
-    suspend fun suggestTags(@Path("chat_id") chatId: UUID): List<String>
+    suspend fun suggestTags(@Path("chat_id") chatId: UUID): TagSuggestionResponse
 
     @POST("tags/")
     suspend fun createTag(@Body body: Map<String, String>): Tag
@@ -49,6 +49,15 @@ interface Voice2ApiService {
 
     @GET("chats/{chat_id}/related")
     suspend fun getRelatedChats(@Path("chat_id") chatId: UUID): List<Transcription>
+
+    @POST("chats/combine")
+    suspend fun combineChats(@Body body: Map<String, List<UUID>>): CombineChatsResponse
+
+    @GET("chats/{chat_id}/sources")
+    suspend fun getSourceChats(@Path("chat_id") chatId: UUID): List<Transcription>
+
+    @GET("chats/{chat_id}/combined-into")
+    suspend fun getCombinedInto(@Path("chat_id") chatId: UUID): Transcription?
 
     @DELETE("chats/{chat_id}")
     suspend fun deleteChat(@Path("chat_id") chatId: UUID)
