@@ -75,7 +75,12 @@ fun Voice2NavHost(
                 slideOutHorizontally(tween(SLIDE_DURATION)) { it } + fadeOut(tween(SLIDE_DURATION / 2))
             }
         ) {
-            ChatDetailScreen(onBack = { navController.popBackStack() })
+            ChatDetailScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToChat = { id ->
+                    navController.navigate(Screen.ChatDetail.createRoute(id))
+                }
+            )
         }
 
         composable(Screen.Todos.route) {
