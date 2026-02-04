@@ -57,6 +57,9 @@ class ChatViewModel @Inject constructor(
     private val _suggestedTags = MutableStateFlow<List<String>>(emptyList())
     val suggestedTags: StateFlow<List<String>> = _suggestedTags.asStateFlow()
 
+    private val _showMerged = MutableStateFlow(false)
+    val showMerged: StateFlow<Boolean> = _showMerged.asStateFlow()
+
     private val _isSearchListening = MutableStateFlow(false)
     val isSearchListening: StateFlow<Boolean> = _isSearchListening.asStateFlow()
 
@@ -168,6 +171,11 @@ class ChatViewModel @Inject constructor(
         lastPhotoUri = uri
     }
 
+    fun toggleShowMerged() {
+        _showMerged.value = !_showMerged.value
+        loadChats()
+    }
+
     fun loadChats() {
         viewModelScope.launch {
             // Only show full-screen spinner on first load; pull-to-refresh keeps the list visible
@@ -175,9 +183,9 @@ class ChatViewModel @Inject constructor(
                 _uiState.value = ChatUiState.Loading
             }
             _isRefreshing.value = true
-            repository.getChats()
+            repository.getChats(includeMerged = _showMerged.value)
                 .onSuccess { chats ->
-                    _uiState.value = ChatUiState.Success(chats.filter { !it.isMerged })
+                    _uiState.value = ChatUiState.Success(chats)
                 }
                 .onFailure { e -> _uiState.value = ChatUiState.Error(e.message ?: "Unknown error") }
             _isRefreshing.value = false

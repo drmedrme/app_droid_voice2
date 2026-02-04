@@ -20,7 +20,7 @@ import javax.inject.Singleton
 class Voice2Repository @Inject constructor(
     private val apiService: Voice2ApiService
 ) {
-    suspend fun getChats(): Result<List<Transcription>> = runCatching { apiService.getChats() }
+    suspend fun getChats(includeMerged: Boolean = false): Result<List<Transcription>> = runCatching { apiService.getChats(includeMerged) }
     
     suspend fun searchChats(query: String): Result<List<Transcription>> = runCatching { apiService.searchChats(query) }
 

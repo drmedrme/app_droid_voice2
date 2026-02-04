@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -74,6 +76,7 @@ fun ChatScreen(
     val dateTo by viewModel.dateTo.collectAsState()
     val selectedTags by viewModel.selectedTags.collectAsState()
     val tagFacets by viewModel.tagFacets.collectAsState()
+    val showMerged by viewModel.showMerged.collectAsState()
 
     val context = LocalContext.current
     var hasAudioPermission by remember {
@@ -136,6 +139,31 @@ fun ChatScreen(
             singleLine = true,
             shape = MaterialTheme.shapes.extraLarge
         )
+
+        // Show merged toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            FilterChip(
+                selected = showMerged,
+                onClick = { viewModel.toggleShowMerged() },
+                label = { Text(if (showMerged) "Hide Originals" else "Show Originals") },
+                leadingIcon = {
+                    Icon(
+                        if (showMerged) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        contentDescription = if (showMerged) "Showing original source notes" else "Original source notes hidden",
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Color(0xFFFFF3E0),
+                    selectedLabelColor = Color(0xFF6D4C00)
+                )
+            )
+        }
 
         // Filter panel
         AnimatedVisibility(

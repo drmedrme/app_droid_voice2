@@ -7,7 +7,7 @@ import java.util.UUID
 
 interface Voice2ApiService {
     @GET("chats/")
-    suspend fun getChats(): List<Transcription>
+    suspend fun getChats(@Query("include_merged") includeMerged: Boolean = false): List<Transcription>
 
     @GET("chats/search/")
     suspend fun searchChats(@Query("query") query: String): List<Transcription>

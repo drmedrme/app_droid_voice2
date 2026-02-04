@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.voice2.app.data.preferences.SettingsPreferences
 import com.voice2.app.data.preferences.ThemeMode
+import com.voice2.app.data.preferences.SettingsPreferences.Companion.DEFAULT_SPEECH_PAUSE_MS
 import com.voice2.app.data.preferences.TranscriptionMode
 import com.voice2.app.di.BaseUrlInterceptor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,6 +49,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope, SharingStarted.Eagerly, BuildConfig.BASE_URL
     )
 
+    val speechPauseDuration = settingsPreferences.speechPauseDuration.stateIn(
+        viewModelScope, SharingStarted.Eagerly, DEFAULT_SPEECH_PAUSE_MS
+    )
+
     private val _testState = MutableStateFlow<TestConnectionState>(TestConnectionState.Idle)
     val testState = _testState.asStateFlow()
 
@@ -67,6 +72,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setTranscriptionMode(mode: TranscriptionMode) {
         viewModelScope.launch { settingsPreferences.setTranscriptionMode(mode) }
+    }
+
+    fun setSpeechPauseDuration(ms: Long) {
+        viewModelScope.launch { settingsPreferences.setSpeechPauseDuration(ms) }
     }
 
     fun setBaseUrl(url: String) {
